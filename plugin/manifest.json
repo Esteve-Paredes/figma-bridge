@@ -1,0 +1,14 @@
+{
+  "name": "Exponer diseño (local)",
+  "id": "figma-bridge-expose-design",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:3855"],
+    "reasoning": "Envia el diseno seleccionado solo a un servidor local en la maquina del usuario."
+  }
+}
