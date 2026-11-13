@@ -68,8 +68,23 @@ Notas:
 - La copia conserva los `nodeId` del original: los enlaces `?node-id=` armados con el export abren la misma vista en
   el archivo original.
 - La copia no se actualiza sola: si el diseño cambia, borrar la copia, duplicar otra vez y re-exportar.
-- Diferencias con el plugin: PNG a 1x por defecto (el plugin usa 2x) y, si un árbol pasa `MAX_DEPTH`, el nodo queda
-  con la marca `_truncado` en vez de cortarse sin aviso.
+- Tamaño de las vistas previas: `PNG_SCALE = null` es automático: **2x** (igual que el plugin) con
+  `SOLO_PAGINA_ACTUAL = true` y **1x** al exportar el archivo completo, que a 2x pesa demasiado. Se puede fijar un
+  número. Para evaluar detalles finos de un módulo, re-exportarlo con `SOLO_PAGINA_ACTUAL = true`.
+- Si un árbol pasa `MAX_DEPTH`, el nodo queda con la marca `_truncado` (en el plugin y en la consola, y también en
+  `design.compact.json`) en vez de cortarse sin aviso.
+
+## Desarrollo (editar el plugin o la consola)
+
+`plugin/code.js` y `consola/export-consola.js` son **archivos generados**: la lectura del diseño vive una sola vez en
+`src/compartido/serializar.js` y se incluye en las plantillas `src/plugin.js` y `src/consola.js`. Se suben al repo
+generados porque ni el plugin ni la consola pueden leer otros archivos.
+
+- Cambiar cómo se lee el diseño: editar `src/compartido/serializar.js`, luego `node build.js`.
+- Cambiar solo el plugin (colecciones, ventana) o solo la consola (opciones, descargas): editar su plantilla en `src/`,
+  luego `node build.js`.
+- `node build.js --check` no escribe nada y sale con código 1 si algún archivo generado no coincide con `src/` (úsalo
+  antes de subir un cambio, o en CI). Nunca editar a mano los archivos generados.
 
 ## Resultado
 

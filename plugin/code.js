@@ -1,6 +1,10 @@
 // Corre dentro de Figma. Lee la seleccion, la serializa y manda JSON + PNG a la UI (que los envia al servidor local).
+// GENERADO por build.js desde src/plugin.js y src/compartido/. No editar a mano: editar src/ y correr `node build.js`.
 const MAX_DEPTH = 12;
 
+// Lectura del diseno compartida por el plugin (plugin/code.js) y el script de consola (consola/export-consola.js).
+// Se incluye tal cual en los dos por build.js. Espera que el archivo que lo incluye ya defina MAX_DEPTH.
+// Solo LEE el documento: no modifica nada del archivo de Figma.
 function hex(c) {
   const h = (n) => Math.round(n * 255).toString(16).padStart(2, "0");
   return "#" + h(c.r) + h(c.g) + h(c.b);
@@ -118,9 +122,14 @@ async function serialize(node, depth) {
       o.variant = node.variantProperties || undefined;
     } catch (e) {}
   }
-  if ("children" in node && depth < MAX_DEPTH) {
-    o.children = [];
-    for (const c of node.children) o.children.push(await serialize(c, depth + 1));
+  if ("children" in node) {
+    if (depth < MAX_DEPTH) {
+      o.children = [];
+      for (const c of node.children) o.children.push(await serialize(c, depth + 1));
+    } else if (node.children.length) {
+      // Un arbol mas profundo que MAX_DEPTH se corta, pero con aviso (compact.js lo conserva en design.compact.json).
+      o._truncado = `${node.children.length} hijo(s) no exportados (MAX_DEPTH=${MAX_DEPTH})`;
+    }
   }
   return o;
 }

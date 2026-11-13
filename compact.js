@@ -117,6 +117,8 @@ function compactNode(n, parent, stats) {
     if (kids.length) o.children = kids;
     if (omitted) o._omitido = `${omitted} elemento(s) ocultos`;
   }
+  // Marca puesta al exportar cuando el arbol paso MAX_DEPTH: sin esto el modelo no sabria que hay hijos sin exportar.
+  if (n._truncado) o._truncado = n._truncado;
   if (VECTORISH.has(n.type)) stats.vectors++;
   return o;
 }
