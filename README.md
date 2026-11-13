@@ -94,6 +94,14 @@ Funciona con cualquier **archivo de diseño** abierto en Figma web, con la sesi�
    - `configurar({ servidor, prefijoColeccion, maxDepth })`. `prefijoColeccion: "auto"` antepone el nombre del archivo
      a la colección (`<archivo>-modulo-tramites`) para que dos archivos con una página del mismo nombre no se pisen en
      `exports/`; sin prefijo (por defecto) la colección es solo la página.
+   - `recursos({ pagina, vista })`: candidatos a **recurso suelto** dentro de una vista (logos, iconos, ilustraciones,
+     fotos): el nodo más alto que es solo dibujo (sin texto) con vectores o imágenes. Devuelve `id`, `nombre` sugerido
+     (único), tamaño, `formato` sugerido (`png` si tiene imagen de relleno, `svg` si es vectorial) y su `ruta` en el
+     árbol. Es una sugerencia: una fila de logos en un mismo contenedor sale como un solo recurso.
+   - `exportarRecursos({ pagina, nodos, coleccion, desde, cuantas })`: `nodos` es una lista de `{ id, nombre, formato,
+     escala }` (sirven tal cual los de `recursos().candidatos`). El SVG se exporta como texto y el PNG a `escala` (2 por
+     defecto). Quedan en `exports/<coleccion>/recursos/<nombre>.<ext>` con un `recursos/index.json` (nodo de Figma, tamaño,
+     bytes). El servidor solo acepta `svg` y `png` y sanea el nombre.
    - `mapa()` devuelve `avisos` y `tiposPrimerNivel`: si una página no tiene vistas (o casi ninguna) explica qué hay en
      su primer nivel (grupos, secciones anidadas, conjuntos de componentes), que hoy no se detectan como vistas.
 4. Escala: `escala: 1` para el mapa del flujo y `2` para las vistas que se van a maquetar (una vista a 2x pesa ~1,4 MB).
@@ -103,6 +111,8 @@ Funciona con cualquier **archivo de diseño** abierto en Figma web, con la sesi�
    `esperarFigma()` lo explica. El servidor solo escucha en `127.0.0.1`. `PORT=3856 node server.js` levanta una segunda instancia (p. ej. para pruebas).
 
 El script se genera desde `src/web.js` (ver "Desarrollo").
+
+Skill para agentes con este flujo (servidor, navegador, mapa, exportación y evaluación): [`.claude/skills/figma-vista/SKILL.md`](.claude/skills/figma-vista/SKILL.md). Es genérica; las reglas de un proyecto concreto van en su propia skill encima de esta.
 
 ## Desarrollo (editar el plugin o la consola)
 
@@ -126,6 +136,9 @@ exports/
       design.json               # completo (referencia, pesado)
       design.compact.json       # liviano, para que lo lea el modelo
       preview.png               # imagen del frame a 2x, fondo blanco
+    recursos/                   # solo con exportarRecursos (modo web)
+      index.json                # metadatos de cada recurso
+      <nombre>.svg | <nombre>.png
 ```
 
 - Re-exportar la misma vista (mismo id de Figma) reemplaza su carpeta; otra vista con el mismo nombre queda como `<vista>-2`.

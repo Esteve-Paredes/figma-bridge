@@ -1,6 +1,7 @@
 // Modo web: lo inyecta el agente en Figma web y lo maneja llamando funciones. SOLO LEE el documento (no modifica nada del archivo).
 // Inyeccion: (0, eval)(await (await fetch("http://127.0.0.1:3855/web.js")).text())  -> deja window.figmaBridge.
-// Funciones: indice(), mapa(pagina), exportar({ pagina, vistas, escala, desde, cuantas }). Cada vista viaja en su propia peticion a server.js.
+// Funciones: indice(), mapa(pagina), exportar({ pagina, vistas, escala, desde, cuantas }), recursos({ pagina, vista }), exportarRecursos({ pagina, nodos }).
+// Cada vista y cada recurso viajan en su propia peticion a server.js.
 (() => {
   const VERSION = "1";
   let MAX_DEPTH = 12;
@@ -193,6 +194,108 @@
     return { archivo: figma.root.name, coleccion: col, total: elegidas.length, enviadas, fallidas, desde, siguiente: siguiente < elegidas.length ? siguiente : null, escala, kb, ms: Math.round(performance.now() - inicio) };
   }
 
-  window.figmaBridge = { version: VERSION, configurar, esperarFigma, indice, mapa, exportar };
+  // ---- Recursos sueltos: logos, iconos e ilustraciones de una vista ----
+  const TIPOS_VECTOR = new Set(["VECTOR", "BOOLEAN_OPERATION", "STAR", "POLYGON", "LINE"]);
+  const TIPOS_GRAFICO = new Set([...TIPOS_VECTOR, "RECTANGLE", "ELLIPSE"]);
+  const TIPOS_CONTENEDOR = new Set(["FRAME", "GROUP", "INSTANCE", "COMPONENT", "SECTION"]);
+  const MAX_CANDIDATOS = 300;
+
+  const conImagen = (n) => Array.isArray(n.fills) && n.fills.some((f) => f.type === "IMAGE" && f.visible !== false);
+
+  // Resume un nodo: sin texto (todo es dibujo), con algun vector o imagen (no es solo un rectangulo de color) y si tiene imagen de relleno.
+  function resumenGrafico(n) {
+    if (n.visible === false) return { grafico: false };
+    if (n.type === "TEXT") return { grafico: false };
+    let vector = TIPOS_VECTOR.has(n.type);
+    let imagen = conImagen(n);
+    if (n.children) {
+      if (!TIPOS_CONTENEDOR.has(n.type) && !TIPOS_VECTOR.has(n.type)) return { grafico: false };
+      for (const c of n.children) {
+        const r = resumenGrafico(c);
+        if (c.visible === false) continue;
+        if (!r.grafico) return { grafico: false };
+        vector = vector || r.vector;
+        imagen = imagen || r.imagen;
+      }
+    } else if (!TIPOS_GRAFICO.has(n.type)) return { grafico: false };
+    return { grafico: vector || imagen, vector, imagen };
+  }
+
+  // Candidatos a recurso dentro de una vista: el nodo mas alto que es solo dibujo (sin texto) con vectores o imagenes. No baja dentro de un candidato.
+  // Devuelve id, nombre sugerido unico, tamano y formato sugerido (png si hay imagen de relleno, svg si es vectorial).
+  async function recursos({ pagina, vista } = {}) {
+    exigirListo();
+    const page = buscarPagina(pagina);
+    await page.loadAsync();
+    const todas = vistasDePagina(page);
+    const v = todas.find((x) => x.node.id === vista || x.node.name === vista);
+    if (!v) throw new Error(`No hay ninguna vista "${vista}" en "${page.name}".`);
+    const candidatos = [];
+    const usados = new Set();
+    const nombreUnico = (n) => {
+      const base = slug(n.name, "recurso");
+      let nombre = base;
+      for (let i = 2; usados.has(nombre); i++) nombre = `${base}-${i}`;
+      usados.add(nombre);
+      return nombre;
+    };
+    const recorrer = (n, ruta) => {
+      if (candidatos.length >= MAX_CANDIDATOS || n.visible === false) return;
+      const r = n.type === "TEXT" ? { grafico: false } : resumenGrafico(n);
+      if (r.grafico && n.width > 0 && n.height > 0) {
+        candidatos.push({ id: n.id, nombre: nombreUnico(n), nombreFigma: n.name, tipo: n.type, ancho: Math.round(n.width), alto: Math.round(n.height), formato: r.imagen ? "png" : "svg", ruta: ruta.join(" / ") });
+        return;
+      }
+      if (n.children) for (const c of n.children) recorrer(c, [...ruta, n.name]);
+    };
+    for (const c of v.node.children || []) recorrer(c, [v.node.name]);
+    return { archivo: figma.root.name, vista: v.node.name, total: candidatos.length, truncado: candidatos.length >= MAX_CANDIDATOS, candidatos };
+  }
+
+  async function enviarRecursos(carga) {
+    const res = await fetch(`${config.servidor}/recursos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: carga });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    return res.json();
+  }
+
+  // nodos: [{ id, nombre, formato: "svg" | "png", escala }]  (los de recursos().candidatos sirven tal cual). Se guardan en exports/<coleccion>/recursos/.
+  // svg se exporta como texto; png a `escala` (2 por defecto). desde + cuantas: tandas, como exportar().
+  async function exportarRecursos({ pagina, nodos, coleccion, desde = 0, cuantas = 8 } = {}) {
+    exigirListo();
+    if (!Array.isArray(nodos) || !nodos.length) throw new Error("exportarRecursos necesita nodos: [{ id, nombre, formato }]");
+    const page = buscarPagina(pagina);
+    await page.loadAsync();
+    const col = coleccion || nombreColeccion(page);
+    const tanda = nodos.slice(desde, desde + cuantas);
+    const inicio = performance.now();
+    const guardados = [];
+    const fallidos = [];
+    let kb = 0;
+    for (const item of tanda) {
+      try {
+        const formato = String(item.formato || "svg").toLowerCase();
+        if (formato !== "svg" && formato !== "png") throw new Error(`formato no permitido: ${item.formato}`);
+        const node = await figma.getNodeByIdAsync(item.id);
+        if (!node) throw new Error("no existe un nodo con ese id");
+        const escala = item.escala || 2;
+        let archivo;
+        if (formato === "svg") {
+          archivo = { encoding: "utf8", data: await node.exportAsync({ format: "SVG_STRING", svgIdAttribute: false }) };
+        } else {
+          archivo = { encoding: "base64", data: figma.base64Encode(await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: escala } })) };
+        }
+        const carga = JSON.stringify({ coleccion: col, archivos: [{ ...archivo, nombre: item.nombre || node.name, formato, nodeId: node.id, nombreFigma: node.name, escala: formato === "png" ? escala : null, ancho: Math.round(node.width), alto: Math.round(node.height) }] });
+        kb += Math.round(carga.length / 1024);
+        const r = await enviarRecursos(carga);
+        guardados.push(...r.guardados);
+      } catch (e) {
+        fallidos.push({ id: item.id, nombre: item.nombre, error: String(e && e.message ? e.message : e) });
+      }
+    }
+    const siguiente = desde + tanda.length;
+    return { archivo: figma.root.name, coleccion: col, total: nodos.length, guardados, fallidos, desde, siguiente: siguiente < nodos.length ? siguiente : null, kb, ms: Math.round(performance.now() - inicio) };
+  }
+
+  window.figmaBridge = { version: VERSION, configurar, esperarFigma, indice, mapa, exportar, recursos, exportarRecursos };
   return window.figmaBridge.version;
 })();

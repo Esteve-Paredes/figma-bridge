@@ -44,6 +44,38 @@ function actualizarIndice(colDir, coleccion, vista) {
   fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
 }
 
+const EXTENSIONES_RECURSO = new Set(["svg", "png"]);
+
+// Recursos sueltos (logos, iconos, ilustraciones) de una coleccion: exports/<coleccion>/recursos/<nombre>.<ext> + recursos/index.json con sus metadatos.
+// El nombre del archivo se sanea (sin rutas) y solo se aceptan svg y png.
+function guardarRecursos({ coleccion: colCruda, archivos }) {
+  if (!Array.isArray(archivos) || !archivos.length) throw new Error("Faltan archivos");
+  const coleccion = slug(colCruda || "sin-coleccion", "sin-coleccion");
+  const dir = path.join(OUT, coleccion, "recursos");
+  fs.mkdirSync(dir, { recursive: true });
+  const indexPath = path.join(dir, "index.json");
+  let index = { coleccion, recursos: [] };
+  try {
+    index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+  } catch (e) {}
+  const guardados = [];
+  for (const a of archivos) {
+    const ext = String(a.formato || "").toLowerCase();
+    if (!EXTENSIONES_RECURSO.has(ext)) throw new Error(`Formato no permitido: ${a.formato}`);
+    const archivo = `${slug(a.nombre, "recurso")}.${ext}`;
+    const contenido = a.encoding === "base64" ? Buffer.from(a.data, "base64") : Buffer.from(String(a.data), "utf8");
+    fs.writeFileSync(path.join(dir, archivo), contenido);
+    const meta = { archivo, nodeId: a.nodeId, nombreFigma: a.nombreFigma, formato: ext, escala: a.escala, ancho: a.ancho, alto: a.alto, bytes: contenido.length, exportadoEn: new Date().toISOString() };
+    index.recursos = index.recursos.filter((r) => r.archivo !== archivo).concat(meta);
+    guardados.push(archivo);
+    console.log("Recurso:", path.join(dir, archivo));
+  }
+  index.actualizado = new Date().toISOString();
+  index.recursos.sort((x, y) => x.archivo.localeCompare(y.archivo));
+  fs.writeFileSync(indexPath, JSON.stringify(index, null, 2));
+  return { coleccion, guardados };
+}
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -71,7 +103,7 @@ http
       res.writeHead(200, { ...cors, "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
       return res.end(fs.readFileSync(WEB_JS));
     }
-    if (req.method !== "POST" || req.url !== "/export") {
+    if (req.method !== "POST" || (req.url !== "/export" && req.url !== "/recursos")) {
       res.writeHead(404, cors);
       return res.end();
     }
@@ -79,6 +111,11 @@ http
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
       try {
+        if (req.url === "/recursos") {
+          const r = guardarRecursos(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+          return res.end(JSON.stringify(r));
+        }
         const { file, page, coleccion: colCruda, items } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         const coleccion = slug(colCruda || page || "sin-coleccion", "sin-coleccion");
         const colDir = path.join(OUT, coleccion);
