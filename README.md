@@ -8,7 +8,8 @@ dependencias (solo Node); el servidor solo escucha en `127.0.0.1` y nada sale de
 
 - Node instalado (sin `npm install`, no hay dependencias).
 - Figma de escritorio y permiso de **edición** en el archivo (en archivos view-only el menú Plugins está bloqueado:
-  trabajar sobre una copia, p. ej. en Borradores).
+  trabajar sobre una copia, p. ej. en Borradores). Sin app de escritorio (Linux) ver
+  [Sin app de escritorio](#sin-app-de-escritorio-linux-o-navegador).
 - Puerto `3855` libre en `127.0.0.1`.
 - `exports/` está en `.gitignore`: los diseños exportados pueden ser confidenciales y no se suben al repo.
 
@@ -36,6 +37,39 @@ dependencias (solo Node); el servidor solo escucha en `127.0.0.1` y nada sale de
 3. Aparece una ventana con el nombre de la **colección** (por defecto, la página de Figma sin emojis ni acentos:
    "🟡 Módulo checkout" -> `modulo-checkout`). Enter para exportar, o cambiar el nombre antes. Lo cambiado se
    recuerda por página.
+
+## Sin app de escritorio (Linux o navegador)
+
+Figma no tiene app de escritorio para Linux y el navegador no permite importar plugins de desarrollo (`figma-linux`
+tampoco sirve: Figma lo bloquea por versión vieja de Chrome). Para esos casos, `consola/export-consola.js` corre la
+misma lectura del plugin desde la consola de DevTools de Figma web y descarga un JSON por página; `consola/cargar.js`
+los manda al mismo `server.js`. El resultado en `exports/` es el mismo que con el plugin.
+
+Funciona con asiento View, sin llamadas a la API de Figma y sin límite de uso, siempre que el archivo deje copiar a
+los visores.
+
+1. Abrir el archivo en Figma web (Chrome) -> clic en el nombre del archivo -> **Duplicate to your drafts**. Trabajar
+   solo en la copia ("<nombre> (Copy)"): ahí tienes edición.
+2. En la copia, correr una vez cualquier plugin de Community que no modifique el diseño y cerrarlo. Eso habilita el
+   objeto `figma` en la consola. Comprobar: F12 -> Consola -> `figma.root.name` debe responder el nombre de la copia.
+3. Revisar las opciones al inicio de `consola/export-consola.js` (`SOLO_PAGINA_ACTUAL` para re-exportar solo la
+   página abierta, `PNG_SCALE`, `MAX_DEPTH`, `EXIGIR_COPIA`). Pegar el script en la consola (si Chrome lo bloquea,
+   escribir antes `allow pasting`) y Enter. Toma los frames de primer nivel de cada página y los que están dentro de
+   secciones. Al terminar muestra `[export] listo` con las vistas por página.
+4. Arrancar el servidor (`node server.js`) y cargar los JSON descargados:
+   `node consola/cargar.js ~/Downloads/<pagina>.json ...`
+5. Apagar el servidor al terminar.
+
+Notas:
+
+- Chrome pide permiso para descargar varios archivos a la vez: aceptar, o habilitar las descargas automáticas para
+  `figma.com`. Si guarda un archivo con otro nombre da igual: la colección sale del contenido, no del nombre.
+- `figma is not defined`: no se corrió ningún plugin en ese archivo todavía (paso 2).
+- La copia conserva los `nodeId` del original: los enlaces `?node-id=` armados con el export abren la misma vista en
+  el archivo original.
+- La copia no se actualiza sola: si el diseño cambia, borrar la copia, duplicar otra vez y re-exportar.
+- Diferencias con el plugin: PNG a 1x por defecto (el plugin usa 2x) y, si un árbol pasa `MAX_DEPTH`, el nodo queda
+  con la marca `_truncado` en vez de cortarse sin aviso.
 
 ## Resultado
 
