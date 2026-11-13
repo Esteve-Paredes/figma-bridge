@@ -5,8 +5,10 @@ const fs = require("fs");
 const path = require("path");
 const { writeCompact } = require("./compact");
 
-const PORT = 3855;
+// PORT permite levantar una segunda instancia (p. ej. para pruebas); el plugin de escritorio sigue apuntando a 3855.
+const PORT = Number(process.env.PORT) || 3855;
 const OUT = path.join(__dirname, "exports");
+const WEB_JS = path.join(__dirname, "web", "figma-bridge-web.js");
 
 const slug = (s, fallback = "diseno") =>
   String(s)
@@ -44,7 +46,7 @@ function actualizarIndice(colDir, coleccion, vista) {
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Access-Control-Allow-Private-Network": "true",
 };
@@ -55,6 +57,19 @@ http
     if (req.method === "OPTIONS") {
       res.writeHead(204, cors);
       return res.end();
+    }
+    // Modo web: el agente inyecta este script en Figma web y confirma que el servidor esta vivo (solo lectura).
+    if (req.method === "GET" && req.url === "/estado") {
+      res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ ok: true, exports: OUT, webJs: fs.existsSync(WEB_JS) }));
+    }
+    if (req.method === "GET" && req.url === "/web.js") {
+      if (!fs.existsSync(WEB_JS)) {
+        res.writeHead(404, cors);
+        return res.end("Falta web/figma-bridge-web.js: corre node build.js");
+      }
+      res.writeHead(200, { ...cors, "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(fs.readFileSync(WEB_JS));
     }
     if (req.method !== "POST" || req.url !== "/export") {
       res.writeHead(404, cors);

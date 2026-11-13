@@ -162,7 +162,7 @@
     a.download = nombre;
     document.body.appendChild(a);
     a.click();
-    a.remove();
+    document.body.removeChild(a);
   }
 
   if (EXIGIR_COPIA && !/\(copy\)|copia/i.test(figma.root.name)) {

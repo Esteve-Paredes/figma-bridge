@@ -74,10 +74,40 @@ Notas:
 - Si un árbol pasa `MAX_DEPTH`, el nodo queda con la marca `_truncado` (en el plugin y en la consola, y también en
   `design.compact.json`) en vez de cortarse sin aviso.
 
+## Modo web para un agente (sin app de escritorio, Windows/Mac/Linux)
+
+Para que un agente de IA con navegador (p. ej. Claude) pida los diseños por su cuenta, sin que nadie haga clic en Figma.
+Funciona con cualquier **archivo de diseño** abierto en Figma web, con la sesión iniciada y permiso de edición sobre él
+(una copia en Borradores, o un proyecto propio); el diseño solo se lee.
+
+1. Arrancar el servidor: `node server.js`. Comprobar con `GET /estado`.
+2. El agente inyecta el script desde el propio servidor, en la pestaña de Figma web:
+   `(0, eval)(await (await fetch("http://127.0.0.1:3855/web.js")).text())` → queda `window.figmaBridge`.
+3. Funciones (todas devuelven JSON):
+   - `esperarFigma(ms)`: `figma` aparece unos segundos después de abrir el archivo; espera en vez de fallar.
+   - `indice()`: páginas con id, nombre, `coleccion`, `estado` (🟢 `finalizado`, 🟡 `en_proceso`) y `separador`.
+   - `mapa(pagina)`: vistas en **orden de lectura** (secciones numeradas primero, luego por posición; las sueltas al
+     final) con sección, posición, tamaño y conexiones de prototipo. Es la base para reconstruir el flujo.
+   - `exportar({ pagina, vistas, escala, desde, cuantas })`: cada vista viaja en su propia petición a `server.js` y
+     queda en `exports/<coleccion>/<vista>/` como siempre. `vistas` es `"todas"` o una lista de ids/nombres; se exporta
+     en tandas (`cuantas`, 6 por defecto) y la respuesta trae `siguiente` para continuar.
+   - `configurar({ servidor, prefijoColeccion, maxDepth })`. `prefijoColeccion: "auto"` antepone el nombre del archivo
+     a la colección (`<archivo>-modulo-tramites`) para que dos archivos con una página del mismo nombre no se pisen en
+     `exports/`; sin prefijo (por defecto) la colección es solo la página.
+   - `mapa()` devuelve `avisos` y `tiposPrimerNivel`: si una página no tiene vistas (o casi ninguna) explica qué hay en
+     su primer nivel (grupos, secciones anidadas, conjuntos de componentes), que hoy no se detectan como vistas.
+4. Escala: `escala: 1` para el mapa del flujo y `2` para las vistas que se van a maquetar (una vista a 2x pesa ~1,4 MB).
+5. Seguridad: **solo lee**. Eso lo garantiza el código, no el nombre del archivo: `node build.js --check` falla si en los
+   scripts aparece cualquier operación que modifique el documento (`figma.create*`, `remove()`, `setPluginData()`…). El
+   script rechaza archivos que no son de diseño (FigJam, presentaciones). Sin permiso de edición, `figma` no aparece y
+   `esperarFigma()` lo explica. El servidor solo escucha en `127.0.0.1`. `PORT=3856 node server.js` levanta una segunda instancia (p. ej. para pruebas).
+
+El script se genera desde `src/web.js` (ver "Desarrollo").
+
 ## Desarrollo (editar el plugin o la consola)
 
-`plugin/code.js` y `consola/export-consola.js` son **archivos generados**: la lectura del diseño vive una sola vez en
-`src/compartido/serializar.js` y se incluye en las plantillas `src/plugin.js` y `src/consola.js`. Se suben al repo
+`plugin/code.js`, `consola/export-consola.js` y `web/figma-bridge-web.js` son **archivos generados**: la lectura del diseño vive una sola vez en
+`src/compartido/serializar.js` y se incluye en las plantillas `src/plugin.js`, `src/consola.js` y `src/web.js`. Se suben al repo
 generados porque ni el plugin ni la consola pueden leer otros archivos.
 
 - Cambiar cómo se lee el diseño: editar `src/compartido/serializar.js`, luego `node build.js`.
